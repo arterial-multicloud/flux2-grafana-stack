@@ -1,0 +1,31 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  dependsOn:
+    - name: apps-grafana
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./apps/test-azure-ext
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+  postBuild:
+    substitute:
+      K_ENVIRONMENT_NAME: "test-azure"
+      K_CLUSTER_NAME: "test-azure-ext"
+      K_CLUSTER_TYPE: "aks"
+      #
+      K_MIMIR_DNS_NAME: "mimir"
+      K_LOKI_DNS_NAME: "loki"
+      K_TEMPO_DNS_NAME: "tempo"
+      K_PROMETHEUS_DNS_NAME: prometheus-ext
+      #
+      # dns name for weave flux control plane
+      K_WEAVE_GITOPS_DNS_NAME: "weave-gitops-ext"

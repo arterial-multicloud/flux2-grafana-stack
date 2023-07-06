@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: promtail
+  labels:
+    # https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
+    app.kubernetes.io/name: grafana-stack
+    app.kubernetes.io/component: promtail
+    toolkit.fluxcd.io/tenant: ops-team
+  #annotations:
+    # cannot constrain at namespace level as promtail has to run on all nodes
+    # scheduler.alpha.kubernetes.io/node-selector: node_workload_type=apps

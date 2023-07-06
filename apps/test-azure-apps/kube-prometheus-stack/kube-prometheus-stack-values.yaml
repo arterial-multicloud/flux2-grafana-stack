@@ -1,0 +1,37 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: prometheus
+spec:
+
+  # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+  values:
+    
+    # run grafana independently elsewhere...
+    grafana:
+      enabled: false
+
+    alertmanager:
+      enabled: false
+
+    prometheus:
+      prometheusSpec:
+        retention: 24h
+        remoteWrite: 
+          - url: http://${K_MIMIR_DNS_NAME}/api/v1/push
+          # write_relabel_configs:
+          # - source_labels: [__name__]
+          #   regex: ^my_counter$
+          #   target_label: newrelic_metric_type
+          #   replacement: "counter"
+          #   action: replace
+
+        resources:
+          requests:
+            cpu: 200m
+            memory: 200Mi
+        podMonitorNamespaceSelector: {}
+        podMonitorSelector:
+          matchLabels:
+            app.kubernetes.io/component: monitoring

@@ -1,0 +1,196 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: loki
+  namespace: loki
+spec:
+
+  values:
+
+    # https://github.com/grafana/loki/issues/7625
+    # Helm test requires self monitoring to be enabled
+    # https://github.com/grafana/loki/blob/main/production/helm/loki/templates/tests/test-canary.yaml
+    test:
+      enable: false
+
+    # the values to use are here:
+    # https://github.com/grafana/loki/blob/main/production/helm/loki/values.yaml
+   
+    loki:
+      commonConfig:
+        replication_factor: 3
+
+      auth_enabled: false
+      reporting_enabled: false
+
+      server:
+        http_listen_port: 3100
+        grpc_listen_port: 9095
+        log_level: warn
+
+      compactor:
+        retention_enabled: true
+        retention_delete_delay: 2h
+        retention_delete_worker_count: 150
+        working_directory: /var/loki/retention
+        shared_store: azure
+        compaction_interval: 10m
+
+      # tablemanager disabled, compactor is the future
+      tableManager:
+        enabled: false
+
+      limits_config:
+        retention_period: 48h
+        reject_old_samples: false
+        retention_stream:
+        - selector: '{ops_env=~"..*"}'
+          priority: 1
+          period: 24h
+        per_tenant_override_config: /etc/overrides.yaml
+
+      schema_config:
+        configs:
+          - from: 2022-01-11
+            store: boltdb-shipper
+            object_store: azure
+            schema: v12
+            index:
+              prefix: loki_index_
+              period: 24h
+
+      storage:
+        bucketNames:
+          chunks: loki-chunks
+          ruler: loki-ruler
+          admin: loki-admin
+        type: azure
+        azure:
+          # https://grafana.com/docs/loki/latest/configuration/#azure_storage_config
+          #
+          # Your Azure storage account name
+          requestTimeout: "10s"
+          accountName: $${AZURE_SA_ACCOUNT_NAME}
+          accountKey: $${AZURE_SA_ACCOUNT_KEY}
+          #useManagedIdentity: false
+          #useFederatedToken: false
+          #userAssignedId: null
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+
+    # no matches for kind "PodLogs" in version "monitoring.grafana.com/v1alpha1" ensure CRDs are installed first
+    # https://grafana.com/docs/agent/latest/operator/deploy-agent-operator-resources/
+
+    # Configuration for the gateway pod(s)
+    gateway:
+      enabled: true
+      nodeSelector:
+        node_workload_type: loki
+      replicas: 1
+      service:
+        # -- Port of the gateway service (default 80)
+        port: 80
+        # -- Type of the gateway service (default ClusterIP)
+        type: ClusterIP
+        # -- ClusterIP of the gateway service (default null)
+        clusterIP: null
+
+    # Configuration for the read pod(s)
+    read: 
+      enabled: true
+      nodeSelector:
+        node_workload_type: loki
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-account-name
+
+    # Configuration for the write pod(s)
+    write: 
+      enabled: true
+      nodeSelector:
+        node_workload_type: loki
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-account-name
+
+    # Configuration for the backend pod(s)
+    backend:
+      replicas: 3
+      nodeSelector:
+        node_workload_type: loki
+      autoscaling: 
+        enabled: false
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-account-name
+
+    # https://grafana.com/docs/loki/latest/installation/helm/monitor-and-alert/with-local-monitoring/
+    monitoring:
+
+      dashboards:
+        namespace: loki
+
+      lokiCanary:
+          enabled: true
+          nodeSelector:
+            node_workload_type: loki
+          # kubernetes.io/os: "linux"
+
+      # The ServiceMonitor resource works with either the Prometheus Operator or the Grafana Agent Operator, 
+      # and defines how Loki’s metrics should be scraped. Scraping this Loki cluster using the scrape config 
+      # defined in the SerivceMonitor resource is required for the included dashboards to work. 
+      # A MetricsInstance can be configured to write the metrics to a remote Prometheus instance such as Grafana Cloud Metrics.
+      serviceMonitor:
+        enabled: true
+        metricsInstance:
+          enabled: true
+          labels:
+            ops_env: test-azure
+            ops_name: test-azure-loki
+            ops_type: aks
+            ops_remotewriter: loki
+            ops_scope: loki
+          remoteWrite:
+            - url: http://${K_MIMIR_DNS_NAME}/api/v1/push
+
+      # Self monitoring determines whether Loki should scrape its own logs.
+      # This feature currently relies on the Grafana Agent Operator being installed,
+      # which is installed by default using the grafana-agent-operator sub-chart.
+      # It will create custom resources for GrafanaAgent, LogsInstance, and PodLogs to configure
+      # scrape configs to scrape its own logs with the labels expected by the included dashboards.
+      selfMonitoring:
+        enabled: true
+        tenant:
+          # -- Name of the tenant
+          name: "self-monitoring"

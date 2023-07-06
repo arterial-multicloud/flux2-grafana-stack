@@ -1,0 +1,82 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: phlare
+  namespace: phlare
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: phlare
+      version: ">=0.5.3 <1.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-charts
+        namespace: grafana-charts
+      interval: 5m
+  values:
+    # https://github.com/grafana/phlare/blob/main/operations/phlare/helm/phlare/values.yaml
+    phlare:
+
+      extraArgs:
+        log.level: debug
+        config.expand-env: true
+
+      extraEnvVars:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: loki-az-sa-access-key
+              key: sa-account-name
+
+      structuredConfig:
+        storage:
+          backend: azure
+          azure:
+            account_name: $${AZURE_SA_ACCOUNT_NAME}
+            account_key: $${AZURE_SA_ACCOUNT_KEY}
+            container_name: phlare
+            endpoint_suffix: null
+            user_assigned_id: null
+
+      components:
+        querier:
+          kind: Deployment
+          replicaCount: 2
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              memory: 256Mi
+              cpu: 100m
+        distributor:
+          kind: Deployment
+          replicaCount: 2
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              memory: 256Mi
+              cpu: 500m
+        agent:
+          kind: Deployment
+          replicaCount: 1
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              memory: 128Mi
+              cpu: 50m
+        ingester:
+          kind: StatefulSet
+          replicaCount: 3
+
+    minio:
+      enabled: false
+
+      

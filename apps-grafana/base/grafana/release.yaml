@@ -1,0 +1,31 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: grafana
+spec:
+  interval: 15m
+  chart:
+    metadata:
+      labels:
+        app: grafana-frontend
+    spec:
+      chart: grafana
+      version: ">=6.57.3 <7.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-charts
+        namespace: grafana-charts
+  maxHistory: 3
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  uninstall:
+    keepHistory: false
+  # https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
+  values:

@@ -1,0 +1,18 @@
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://mimir.opsstack-idmz.weu.external.azure.pss.local/api/v1/push"
+  }
+  external_labels = {
+          cluster = "opsstack",
+          cloudProvider = "azure",
+  }
+}
+
+discovery.kubernetes "pods" {
+  role = "pod"
+}
+
+prometheus.scrape "metrics_pods" {
+  targets    = discovery.kubernetes.pods.targets
+  forward_to = [prometheus.remote_write.default.receiver]
+}

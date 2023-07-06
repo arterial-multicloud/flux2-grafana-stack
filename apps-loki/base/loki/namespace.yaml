@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: loki
+  labels:
+    # https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
+    app.kubernetes.io/name: grafana-stack
+    app.kubernetes.io/component: loki
+    toolkit.fluxcd.io/tenant: ops-team
+  # annotations:
+    # scheduler.alpha.kubernetes.io/node-selector: 

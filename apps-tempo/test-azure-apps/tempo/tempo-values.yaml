@@ -1,0 +1,165 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: tempo
+  namespace: tempo
+spec:
+
+  values:
+    # https://github.com/grafana/helm-charts/blob/main/charts/tempo-distributed/values.yaml
+    # https://grafana.com/docs/tempo/latest/operations/architecture/
+    # https://grafana.com/docs/grafana/latest/datasources/tempo/#trace-to-logs
+    
+    reportingEnabled: false
+
+    storage:
+      trace:
+        # refer https://grafana.com/docs/tempo/latest/configuration/
+        backend: azure
+        azure:
+          # EXPERIMENTAL
+          # https://grafana.com/docs/loki/latest/configuration/#azure_storage_config
+          #
+          storage_account_name: $${AZURE_SA_ACCOUNT_NAME}
+          storage_account_key: $${AZURE_SA_ACCOUNT_KEY}
+          container_name: tempo
+          # endpoint_suffix: core.windows.net # defaults to Azure global(core.windows.net)
+
+    traces:
+      otlp:
+        grpc:
+          enabled: true
+        http:
+          enabled: true
+      zipkin:
+        enabled: false
+      jaeger:
+        thriftHttp:
+          enabled: false
+      opencensus:
+        enabled: false
+
+    distributor:
+      nodeSelector:
+        node_workload_type: apps
+      replicas: 3
+      # autoscaling:
+        # enabled: true
+        # minReplicas: 1
+        # maxReplicas: 3
+      config:
+        log_received_spans:
+          # debug logging
+          enabled: false
+
+    ingester: 
+      nodeSelector:
+        node_workload_type: apps
+      replicas: 3
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-account-name
+
+    querier:
+      nodeSelector:
+        node_workload_type: apps
+      replicas: 3
+      # autoscaling:
+        # enabled: true
+        # minReplicas: 1
+        # maxReplicas: 3
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-account-name
+
+    compactor:
+      nodeSelector:
+        node_workload_type: apps
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-account-name
+
+    queryFrontend:
+      nodeSelector:
+        node_workload_type: apps
+      replicas: 3
+      # autoscaling:
+        # enabled: true
+        # minReplicas: 1
+        # maxReplicas: 3
+      extraArgs:
+        - "-config.expand-env=true"
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-account-name
+
+    # https://grafana.com/docs/tempo/latest/metrics-generator/
+    # service graphs and span metrics
+    metricsGenerator:
+      # -- Specifies whether a metrics-generator should be deployed
+      enabled: true
+      nodeSelector:
+        node_workload_type: apps
+      config:
+        storage:
+          remote_write:
+            - url: http://${K_MIMIR_DNS_NAME}/api/v1/push
+
+    metaMonitoring:
+      serviceMonitor:
+        enabled: true
+        labels:
+          ops_env: test-azure
+          ops_name: test-azure-apps
+          ops_type: app
+          ops_remotewriter: tempo.serviceMonitor
+          ops_scope: tempo
+      grafanaAgent:
+        enabled: true
+        labels:
+          ops_env: test-azure
+          ops_name: test-azure-apps
+          ops_type: app
+          ops_remotewriter: tempo.grafanaAgent
+          ops_scope: tempo
+        metrics:
+          remote:
+            url: http://${K_MIMIR_DNS_NAME}/api/v1/push

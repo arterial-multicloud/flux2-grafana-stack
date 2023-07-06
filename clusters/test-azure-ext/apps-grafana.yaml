@@ -1,0 +1,47 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps-grafana
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  dependsOn:
+    - name: core
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./apps-grafana/test-azure-ext
+  prune: true
+  wait: true
+  timeout: 5m0s
+  
+  decryption:
+    provider: sops
+  
+  # https://fluxcd.io/flux/components/kustomize/kustomization/
+  # Note: If you want to avoid var substitutions in scripts embedded in ConfigMaps or container commands, you must use 
+  # the format $var instead of ${var}. If you want to keep the curly braces you can use $${var} which will print out ${var}.
+  postBuild:
+    substitute:
+      K_ENVIRONMENT_NAME: "test-azure"
+      K_CLUSTER_NAME: "test-azure-ext"
+      K_CLUSTER_TYPE: "aks"
+      #
+      K_GRAFANA_DOMAIN: "ops.test.blah.com"
+      K_GRAFANA_URL: "https://ops.test.blah.com"
+      #
+      # domain names
+      K_INTERNAL_DOMAIN_NAME: ""
+      K_EXTERNAL_DOMAIN_NAME: ""
+      K_GRAFANA_DNS_NAME: "grafana.opsstack-edmz.weu.external.azure.pss.local"
+      #
+      # OAUTH endpoint for authentication
+      K_GF_AUTH_AZUREAD_AUTH_URL: ""
+      K_GF_AUTH_AZUREAD_TOKEN_URL: ""
+      #
+      # user managed identity with Azure Monitor Reader and Subscription Reader
+      K_GF_AZURE_MONITOR_SUBSCRIPTION_ID: ""
+      K_GF_AZURE_MONITOR_CLIENT_ID: ""
+    # substituteFrom:
+    # - kind: Secret
+    #  name: cluster-secrets

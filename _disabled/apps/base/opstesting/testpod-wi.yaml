@@ -1,0 +1,38 @@
+# Step 6. https://learn.microsoft.com/en-us/azure/aks/csi-secrets-store-identity-access
+# This is a sample pod definition for using SecretProviderClass and the user-assigned identity to access your key vault
+# Side note: Flux is not meant to manage pods directly, use a Deployment or Job https://github.com/fluxcd/flux2/issues/2772
+
+apiVersion: apps/v1
+kind: Deployment 
+metadata: 
+  name: testpod-wi
+  namespace: opstesting
+spec: 
+  selector:
+    matchLabels: 
+      app: testpod-wi
+  replicas: 1 
+  template: 
+    metadata: 
+      labels: 
+        app: testpod-wi
+    spec:
+      serviceAccountName: testpod-wi-secrets-sa
+      containers:
+        - name: busybox
+          image: k8s.gcr.io/e2e-test-images/busybox:1.29-1
+          command:
+            - "/bin/sleep"
+            - "10000"
+          volumeMounts:
+          - name: secrets-store01-inline
+            mountPath: "/mnt/secrets-store"
+            readOnly: true
+      volumes:
+        - name: secrets-store01-inline
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "testpod-wi-kv"
+

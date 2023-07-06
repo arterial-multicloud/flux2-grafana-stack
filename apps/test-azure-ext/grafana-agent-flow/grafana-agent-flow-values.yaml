@@ -1,0 +1,17 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: grafana-agent-flow
+  namespace: grafana-agent-flow
+spec:
+  values:
+    # https://github.com/grafana/agent/tree/main/operations/helm/charts/grafana-agent
+
+    agent:
+
+      create: false
+      
+      configMap:
+        # increment name to initate a rolling upgrade
+        # must match name in values.yaml 
+        name: config.river.v15

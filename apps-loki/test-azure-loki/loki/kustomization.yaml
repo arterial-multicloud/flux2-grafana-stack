@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loki
+resources:
+  - ../../base/loki
+  - ingress.yaml
+patches:
+  - path: loki-secret.yaml
+  - path: loki-values.yaml

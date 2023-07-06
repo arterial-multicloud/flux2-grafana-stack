@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: grafana
+resources:
+  - ../../base/grafana
+  - grafana-secret.yaml
+  - grafana-auth-env-secret.yaml
+  - ingress.yaml
+patches:
+  - path: namespace-patch.yaml
+  - path: grafana-values.yaml
+
+# Useful syntax so kept.
+# See loki-1 and loki-2 dashboard sections in grafana-values.yaml
+#
+# configMapGenerator:
+#   - name: loki-1
+#     files:
+#       - loki/dashboards/loki-chunks.json
+#       - loki/dashboards/loki-deletion.json
+#       - loki/dashboards/loki-logs.json
+#       - loki/dashboards/loki-mixin-recording-rules.json
+#       - loki/dashboards/loki-operational.json
+#     options:
+#       labels:
+#         grafana_dashboard: "loki-1"
+#         app.kubernetes.io/part-of: loki
+#         app.kubernetes.io/component: monitoring
+#   - name: loki-2
+#     files:
+#       - loki/dashboards/loki-retention.json
+#       - loki/dashboards/loki-reads-resources.json
+#       - loki/dashboards/loki-writes.json
+#       - loki/dashboards/loki-reads.json
+#       - loki/dashboards/loki-writes-resources.json
+#     options:
+#       labels:
+#         grafana_dashboard: "loki-2"
+#         app.kubernetes.io/part-of: flux
+#         app.kubernetes.io/component: monitoring

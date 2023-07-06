@@ -1,0 +1,37 @@
+// #################################################################################
+// Grafana Agent Flow can be configured to collect Prometheus metrics and forward them to any Prometheus-compatible database.
+// https://grafana.com/docs/agent/latest/flow/getting-started/collect-prometheus-metrics/
+// #################################################################################
+prometheus.remote_write "default" {
+  endpoint {
+    url = "http://mimir.opsstack-idmz.weu.external.azure.pss.local/api/v1/push"
+  }
+  external_labels = {
+    ops_env = "test-azure",
+    ops_name = "test-azure-apps",
+    ops_type = "aks",
+    ops_remotewriter = "grafana-agent-flow",
+    ops_scope = "prometheus-tempo-certmanager",
+  }
+}
+
+// #################################################################################
+// Custom prometheus targets
+// #################################################################################
+prometheus.scrape "custom_targets" {
+  targets = [
+    {
+     __address__ = "kube-prometheus-stack-prometheus.svc.cluster.local:9090",
+    },
+    {
+      __address__      = "tempo-query-frontend-discovery.tempo.svc.cluster.local:3100",
+      __metrics_path__ = "/metrics",
+    },
+    {
+      __address__      = "cert-manager.cert-manager.svc.cluster.local:9402",
+      __metrics_path__ = "/metrics",
+    },
+  ]
+
+  forward_to = [prometheus.remote_write.default.receiver]
+}

@@ -1,0 +1,15 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: tempo
+  namespace: tempo
+spec:
+  values:
+    # values from here: 
+    # https://github.com/grafana/helm-charts/blob/main/charts/tempo-vulture/values.yaml
+
+    tempoAddress:
+      # -- the url towards your Tempo distributor, e.g. http://distributor
+      push: http://${K_TEMPO_DNS_NAME}
+      # -- the url towards your Tempo query-frontend, e.g. http://query-frontend:3100
+      query: http://${K_TEMPO_DNS_NAME}:3100

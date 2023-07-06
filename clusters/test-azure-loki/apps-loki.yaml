@@ -1,0 +1,24 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps-loki
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  dependsOn:
+    - name: core
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./apps-loki/test-azure-loki
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+  postBuild:
+    substitute:
+      K_MIMIR_DNS_NAME: "mimir"
+      K_LOKI_DNS_NAME: "loki"
+      K_TEMPO_DNS_NAME: "tempo"
+      K_PROMETHEUS_LOKI_DNS_NAME: prometheus-loki

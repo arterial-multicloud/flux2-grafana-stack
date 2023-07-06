@@ -1,0 +1,589 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: grafana
+  namespace: grafana
+spec:
+  values:
+    # https://github.com/grafana/helm-charts/blob/main/charts/grafana/values.yaml
+
+    replicas: 1
+
+    serviceAccount: 
+      labels: 
+        # for azure monitor (workload identity)
+        azure.workload.identity/client-id: ${GF_SERVICE_ACCOUNT_CLIENT_ID}
+
+    # load environment from secret
+    envFromSecret: grafana-auth-env
+
+    podLabels:
+      aadpodidbinding: grafana-azure-identity
+      # azure.workload.identity/use: "true"
+
+    # autoscaling needs postgres/mysql
+    # see https://grafana.com/docs/grafana/latest/setup-grafana/set-up-for-high-availability/
+    autoscaling:
+      enabled: false
+      minReplicas: 3
+      maxReplicas: 5
+      targetCPU: "60"
+      targetMemory: ""
+
+    ingress:
+      # handling manually
+      enabled: false
+
+    service:
+      enabled: true
+      type: ClusterIP
+      port: 80
+      targetPort: 3000
+
+    admin:
+      ## NOTE secret only applies at first deployment and cannot be updated after
+      ## For info see https://github.com/prometheus-community/helm-charts/issues/2710
+      existingSecret: "grafana-admin-details"
+      userKey: adminUser
+      passwordKey: adminPassword
+
+    ## Configure grafana datasources
+    ## ref: http://docs.grafana.org/administration/provisioning/#datasources
+    ##
+    datasources:
+      # logLevel: DEBUG 
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+        - name: Mimir
+          type: prometheus
+          uid: mimir
+          url: http://mimir.${K_INTERNAL_DOMAIN_NAME}/prometheus
+          isDefault: true
+          jsonData:
+            timeInterval: 15s
+        - name: Test Apps Prometheus
+          type: prometheus
+          uid: tap
+          url: http://prometheus-apps.${K_INTERNAL_DOMAIN_NAME}
+          access: proxy
+          isDefault: false
+          jsonData:
+            httpMethod: POST
+            timeInterval: 30s
+        - name: Test Loki Prometheus
+          type: prometheus
+          uid: tlp
+          url: http://prometheus-loki.${K_INTERNAL_DOMAIN_NAME}
+          access: proxy
+          isDefault: false
+          jsonData:
+            httpMethod: POST
+            timeInterval: 30s
+        - name: Test External Prometheus
+          type: prometheus
+          uid: tep
+          url: http://prometheus-ext.${K_EXTERNAL_DOMAIN_NAME}
+          access: proxy
+          isDefault: false
+          jsonData:
+            httpMethod: POST
+            timeInterval: 30s
+        - name: Loki
+          type: loki
+          uid: loki
+          url: http://loki.${K_INTERNAL_DOMAIN_NAME}
+          isDefault: false
+        - name: Tempo
+          type: tempo
+          uid: EbPG8fYoz
+          url: http://tempo.${K_INTERNAL_DOMAIN_NAME}
+          access: proxy
+          basicAuth: false
+          jsonData:
+            tracesToLogsV2:
+              # Field with an internal link pointing to a logs data source in Grafana.
+              # datasourceUid value must match the uid value of the logs data source.
+              # 
+              # NOTE: re the $$ in tags and query below:
+              # Kustomisation https://fluxcd.io/flux/components/kustomize/kustomization/#variable-substitution
+              # If you want to avoid var substitutions in scripts embedded in ConfigMaps or container commands,
+              # you must use the format $var instead of ${var}. 
+              # If you want to keep the curly braces you can use $${var} which will print out ${var}.
+              datasourceUid: 'Loki'
+              spanStartTimeShift: '1h'
+              spanEndTimeShift: '-1h'
+              tags: ['job', 'instance', 'pod', 'namespace']
+              filterByTraceID: false
+              filterBySpanID: false
+              customQuery: true
+              query: 'method="$${__span.tags.method}"'
+            tracesToMetrics:
+              datasourceUid: 'prom'
+              spanStartTimeShift: '1h'
+              spanEndTimeShift: '-1h'
+              tags: [{ key: 'service.name', value: 'service' }, { key: 'job' }]
+              queries:
+                - name: 'Sample query'
+                  query: 'sum(rate(traces_spanmetrics_latency_bucket{$$__tags}[5m]))'
+            serviceMap:
+              datasourceUid: 'mimir'
+            nodeGraph:
+              enabled: true
+            search:
+              hide: false
+            lokiSearch:
+              datasourceUid: 'Loki'
+            spanBar:
+              type: 'Tag'
+              tag: 'http.path'
+        - name: Azure Monitor
+          type: grafana-azure-monitor-datasource
+          access: proxy
+          jsonData:
+            azureAuthType: msi
+            subscriptionId: ${GF_AZURE_MONTIOR_SUBSCRIPTION_ID}
+          version: 1
+
+    ## Configure grafana alerting (can be templated)
+    ## ref: http://docs.grafana.org/administration/provisioning/#alerting
+    ##
+    # alerting: {}
+
+    ## Configure notifiers
+    ## ref: http://docs.grafana.org/administration/provisioning/#alert-notification-channels
+    ##
+    # notifiers: {}
+
+    ## Configure grafana dashboard to import
+    ## NOTE: To use dashboards you must also enable/configure dashboardProviders
+    ## ref: https://grafana.com/dashboards
+    ##
+    ## dashboards per provider, use provider name as key.
+    ##
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+        - name: 'azure-monitor'
+          orgId: 1
+          folder: 'microsoft / Azure Monitor'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/azure-monitor
+        - name: 'flux'
+          orgId: 1
+          folder: 'kubernetes / Flux'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/flux
+        - name: 'grafana-mimir'
+          orgId: 1
+          folder: 'grafana / Mimir'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/grafana-mimir
+        - name: 'grafana-tempo'
+          orgId: 1
+          folder: 'grafana / Tempo'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/grafana-tempo
+        # - name: 'grafana-loki-mixin-compiled'
+        #   orgId: 1
+        #   folder: 'grafana / Loki / Mixin-Compiled'
+        #   type: file
+        #   disableDeletion: false
+        #   editable: false
+        #   options:
+        #     path: /var/lib/grafana/dashboards/grafana-loki-mixin-compiled
+        - name: 'grafana-loki-helm'
+          orgId: 1
+          folder: 'grafana / Loki / Helm'
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/grafana-loki-helm
+        - name: 'kubernetes'
+          orgId: 1
+          folder: 'kubernetes / Kubernetes'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/kubernetes
+        - name: 'virtual-machines'
+          orgId: 1
+          folder: 'Virtual Machines / Host Metrics'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/virtual-machines
+        - name: 'cert-manager'
+          orgId: 1
+          folder: 'grafana / Cert-manager'
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/certmanager
+
+        # No longer used but kept as this syntax is useful
+        # We're now getting the files by referencing github in loki-helm
+        #
+        # loki-1 and loki-2 are populated from config maps defined in dashboardsConfigMaps
+        # See the readme in <cluster>/grafana/loki and the commented section in kustomization.yaml
+        #
+        # - name: 'loki-1'
+        #   orgId: 1
+        #   folder: 'grafana / Loki-bundled'
+        #   disableDeletion: false
+        #   editable: false
+        #   options:
+        #     path: /var/lib/grafana/dashboards/loki-1
+        # - name: 'loki-2'
+        #   orgId: 1
+        #   folder: 'grafana / Loki-bundled'
+        #   disableDeletion: false
+        #   editable: false
+        #   options:
+        #     path: /var/lib/grafana/dashboards/loki-2
+
+    # dashboardsConfigMaps:
+      # map:[name of dashboard provider] : configmap names
+      # loki-1: "loki-dashboards-1"
+      # loki-2: "loki-dashboards-2"
+
+    defaultDashboardsTimezone: utc
+
+    dashboards:
+      azure-monitor:
+        adx:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/adx.json
+          datasource: Azure Monitor
+        appInsights:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/appInsights.json
+          datasource: Azure Monitor
+        appInsightsGeoMap:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/appInsightsGeoMap.json
+          datasource: Azure Monitor
+        arg:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/arg.json
+          datasource: Azure Monitor
+        cosmosdb:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/cosmosdb.json
+          datasource: Azure Monitor
+        keyvault:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/keyvault.json
+          datasource: Azure Monitor
+        networkInsightsDashboard:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/networkInsightsDashboard.json
+          datasource: Azure Monitor
+        sqldb:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/sqldb.json
+          datasource: Azure Monitor
+        storage:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/storage.json
+          datasource: Azure Monitor
+        v1Alerts:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/v1Alerts.json
+          datasource: Azure Monitor
+        vMInsightsRG:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/vMInsightsRG.json
+          datasource: Azure Monitor
+        vMInsightsWorkspace:
+          url: https://raw.githubusercontent.com/grafana/grafana/main/public/app/plugins/datasource/azuremonitor/dashboards/vMInsightsWorkspace.json
+          datasource: Azure Monitor      
+      flux:
+        cluster:
+          url: https://raw.githubusercontent.com/fluxcd/flux2/main/manifests/monitoring/monitoring-config/dashboards/cluster.json
+          datasource: Test Apps Prometheus
+        control-plane:
+          url: https://raw.githubusercontent.com/fluxcd/flux2/main/manifests/monitoring/monitoring-config/dashboards/control-plane.json
+          datasource: Test Apps Prometheus
+        logs:
+          url: https://raw.githubusercontent.com/fluxcd/flux2/main/manifests/monitoring/monitoring-config/dashboards/logs.json
+          datasource: Test Apps Prometheus
+      grafana-mimir:
+        alertmanager-resources:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-alertmanager-resources.json
+          datasource: Mimir
+        alertmanager:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-alertmanager.json
+          datasource: Mimir
+        compactor-resources:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-compactor-resources.json
+          datasource: Mimir
+        compactor:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-compactor.json
+          datasource: Mimir
+        config:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-config.json
+          datasource: Mimir
+        object-store:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-object-store.json
+          datasource: Mimir
+        overrides:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-overrides.json
+          datasource: Mimir
+        overview-networking:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-overview-networking.json
+          datasource: Mimir
+        overview-resources:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-overview-resources.json
+          datasource: Mimir
+        overview:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-overview.json
+          datasource: Mimir
+        queries:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-queries.json
+          datasource: Mimir
+        reads-networking:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-reads-networking.json
+          datasource: Mimir
+        reads-resources:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-reads-resources.json
+          datasource: Mimir
+        reads:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-reads.json
+          datasource: Mimir
+        remote-ruler-reads-resources:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-remote-ruler-reads-resources.json
+          datasource: Mimir
+        remote-ruler-reads:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-remote-ruler-reads.json
+          datasource: Mimir
+        rollout-progress:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-rollout-progress.json
+          datasource: Mimir
+        ruler:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-ruler.json
+          datasource: Mimir
+        scaling:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-scaling.json
+          datasource: Mimir
+        slow-queries:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-slow-queries.json
+          datasource: Mimir
+        tenants:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-tenants.json
+          datasource: Mimir
+        top-tenants:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-top-tenants.json
+          datasource: Mimir
+        writes-networking:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-writes-networking.json
+          datasource: Mimir
+        writes-resources:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-writes-resources.json
+          datasource: Mimir
+        writes:
+          url: https://raw.githubusercontent.com/grafana/mimir/main/operations/mimir-mixin-compiled/dashboards/mimir-writes.json
+          datasource: Mimir
+      #
+      # These dont work, need to use the helm dashboards below. 
+      # Commented, because if you try and import you get grafana log Warnings... 
+      # "the same UID is used more than once" ""dashboards provisioning provider has no database write permissions because of duplicates"
+      # 
+      # grafana-loki-mixin-compiled:
+      #   m-chunks:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-chunks.json
+      #     datasource: Mimir
+      #   m-deletion:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-deletion.json
+      #     datasource: Mimir
+      #   m-logs:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-logs.json
+      #     datasource: Mimir
+      #   m-reads-resources:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-reads-resources.json
+      #     datasource: Mimir
+      #   m-reads:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-reads.json
+      #     datasource: Mimir
+      #   m-retention:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-retention.json
+      #     datasource: Mimir
+      #   m-writes-resources:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-writes-resources.json
+      #     datasource: Mimir
+      #   m-writes:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-writes.json
+      #     datasource: Mimir
+      #   m-operational:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-operational.json
+      #     datasource: Mimir
+      #   m-recording-rules:
+      #     url: https://raw.githubusercontent.com/grafana/loki/main/production/loki-mixin-compiled/dashboards/loki-mixin-recording-rules.json
+      #     datasource: Mimir
+      grafana-loki-helm:
+        chunks:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-chunks.json
+          datasource: Mimir
+        deletion:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-deletion.json
+          datasource: Mimir
+        logs:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-logs.json
+          datasource: Mimir
+        reads-resources:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-reads-resources.json
+          datasource: Mimir
+        reads:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-reads.json
+          datasource: Mimir
+        retention:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-retention.json
+          datasource: Mimir
+        writes-resources:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-writes-resources.json
+          datasource: Mimir
+        writes:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-writes.json
+          datasource: Mimir
+        operational:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-operational.json
+          datasource: Mimir
+        recording-rules:
+          url: https://raw.githubusercontent.com/grafana/loki/main/production/helm/loki/src/dashboards/loki-mixin-recording-rules.json
+          datasource: Mimir
+      kubernetes:
+        kubernetes-api-server:
+          url: https://raw.githubusercontent.com/dotdc/grafana-dashboards-kubernetes/master/dashboards/k8s-system-api-server.json
+          datasource: Mimir
+        kubernetes-coredns:
+          url: https://raw.githubusercontent.com/dotdc/grafana-dashboards-kubernetes/master/dashboards/k8s-system-coredns.json
+          datasource: Mimir
+        kubernetes-global:
+          url: https://raw.githubusercontent.com/dotdc/grafana-dashboards-kubernetes/master/dashboards/k8s-views-global.json
+          datasource: Mimir
+        kubernetes-namespaces:
+          url: https://raw.githubusercontent.com/dotdc/grafana-dashboards-kubernetes/master/dashboards/k8s-views-namespaces.json
+          datasource: Mimir
+        kubernetes-nodes:
+          url: https://raw.githubusercontent.com/dotdc/grafana-dashboards-kubernetes/master/dashboards/k8s-views-nodes.json
+          datasource: Mimir
+        kubernetes-pods:
+          url: https://raw.githubusercontent.com/dotdc/grafana-dashboards-kubernetes/master/dashboards/k8s-views-pods.json
+          datasource: Mimir
+      virtual-machines:
+        node-exporter-full:
+          url: https://grafana.com/api/dashboards/1860/revisions/31/download
+          datasource: Mimir
+        node-exporter-15172:
+          url: https://grafana.com/api/dashboards/15172/revisions/6/download
+          datasource: Mimir
+        docker-cadvisor-8321:
+          url: https://grafana.com/api/dashboards/8321/revisions/3/download
+          datasource: Mimir
+        docker-cadvisor-15798:
+          url: https://grafana.com/api/dashboards/15798/revisions/9/download
+          datasource: Mimir          
+      cert-manager:
+        cert-manager:
+          url: https://raw.githubusercontent.com/monitoring-mixins/website/master/assets/cert-manager/dashboards/cert-manager.json
+          datasource: Mimir
+      grafana-tempo:
+        operational:
+          url: https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-operational.json
+          datasource: Mimir
+        reads:
+          url: https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-reads.json
+          datasource: Mimir
+        resources:
+          url: https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-resources.json
+          datasource: Mimir
+        rollout-progress:
+          url: https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-rollout-progress.json
+          datasource: Mimir
+        tenants:
+          url: https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-tenants.json
+          datasource: Mimir
+        writes:
+          url: https://raw.githubusercontent.com/grafana/tempo/main/operations/tempo-mixin-compiled/dashboards/tempo-writes.json
+          datasource: Mimir
+
+    # podAnnotations:
+      # instrumentation.opentelemetry.io/inject-sdk: "opentelemetry-operator/instrumentation"
+
+    ## Grafana's primary configuration
+    ## NOTE: values in map will be converted to ini format
+    ## ref: http://docs.grafana.org/installation/configuration/
+    ##
+    grafana.ini:
+      paths:
+        data: /var/lib/grafana/
+        logs: /var/log/grafana
+        plugins: /var/lib/grafana/plugins
+        provisioning: /etc/grafana/provisioning
+      analytics:
+        check_for_updates: true
+
+      log:
+        mode: console
+        # mode: console file
+        # level: debug
+        frontend: true
+
+      server:
+        root_url: /
+        router_logging: true
+
+      security:
+        # disable icons
+        disable_gravatar: true 
+
+      azure:
+        ## https://grafana.com/docs/grafana/latest/datasources/azure-monitor/
+        ## https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/#azure
+        cloud: AzureCloud
+        managed_identity_enabled: true
+        # apps-grafana-workload-identity
+        managed_identity_client_id: ${K_GF_AZURE_MONITOR_CLIENT_ID}
+
+      dataproxy:
+        logging: true
+
+      tracing.opentelemetry:
+        custom_attributes: 
+          ops_env: ${K_ENVIRONMENT_NAME}
+          ops_name: ${K_CLUSTER_NAME}
+          ops_type: ${K_CLUSTER_TYPE}
+          ops_remotewriter: grafana
+          ops_scope: grafana
+        address: http://tempo-query-frontend-discovery.tempo.svc.cluster.local:4318
+        propagation: w3c
+      # jaeger:
+
+      auth.azuread:
+        # https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/configure-authentication/azuread/
+        # https://github.com/luander/k3s-cluster/blob/fff597973963f752cb948459ad99353f39103b97/cluster/apps/monitoring/grafana/secret.enc.yaml
+        ## for ad auth grafana needs an internal https address, so diabled for now
+        name: Azure AD
+        enabled: false
+        allow_sign_up: true
+        auto_login: true
+        scopes: openid email profile
+        # allowed_domains:
+        # allowed_groups:
+        role_attribute_strict: false
+        allow_assign_grafana_admin: false
+        skip_org_role_sync: false
+        use_pkce: true
+        #
+        # populated by kustomize postbuild
+        auth_url: ${K_GF_AUTH_AZUREAD_AUTH_URL}
+        token_url: ${K_GF_AUTH_AZUREAD_TOKEN_URL}
+        #
+        # set in the environment (see envFromSecret above)
+        # client_id: ${GF_AUTH_AZUREAD_CLIENT_ID}
+        # client_secret: ${GF_AUTH_AZUREAD_CLIENT_SECRET}

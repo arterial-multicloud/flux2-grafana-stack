@@ -1,0 +1,18 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: mimir
+  namespace: mimir
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: mimir-distributed
+      version: ">=4.2.0 <5.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-charts
+        namespace: grafana-charts
+      interval: 5m
+  values:
+    # https://github.com/grafana/mimir/blob/main/operations/helm/charts/mimir-distributed/values.yaml

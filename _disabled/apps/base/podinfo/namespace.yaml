@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: podinfo
+  labels:
+    toolkit.fluxcd.io/tenant: ops-team
+  annotations:
+    scheduler.alpha.kubernetes.io/node-selector: node_workload_type=apps

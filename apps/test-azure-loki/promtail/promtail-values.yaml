@@ -1,0 +1,24 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: promtail
+  namespace: promtail
+spec:
+  values:
+    # https://github.com/grafana/helm-charts/blob/main/charts/promtail/values.yaml
+    config:
+      serverPort: 3101
+      clients:
+        - url: http://${K_LOKI_DNS_NAME}/loki/api/v1/push
+          tenant_id: "1"
+
+          # Static labels to add to all logs being sent to Loki.
+          external_labels: 
+            ops_env: ${K_ENVIRONMENT_NAME}
+            ops_name: ${K_CLUSTER_NAME}
+            ops_type: ${K_CLUSTER_TYPE}
+            ops_remotewriter: promtail
+            ops_scope: cluster-wide
+
+    serviceMonitor:
+      enabled: true

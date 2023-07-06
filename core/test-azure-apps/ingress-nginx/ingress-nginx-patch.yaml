@@ -1,0 +1,62 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: ingress-nginx
+  namespace: ingress-nginx
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: ingress-nginx
+      version: 4.7.0
+      sourceRef:
+        kind: HelmRepository
+        name: ingress-nginx
+        namespace: ingress-nginx
+      interval: 12h
+  values:
+    # helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+    # helm search repo ingress-nginx
+    # https://github.com/kubernetes/ingress-nginx/blob/master/charts/ingress-nginx/values.yaml
+    # https://learn.microsoft.com/en-us/azure/aks/ingress-basic?tabs=azure-cli
+
+    controller:
+      replicaCount: 3
+
+      image:
+        registry: registry.k8s.io
+        image: ingress-nginx/controller
+        tag: v1.2.1
+        digest: ""
+        # chroot: true
+
+      service:
+        type: LoadBalancer
+        loadBalancerIP: ${K_INGRESS_NGINX_LOADBALANCER_IP}
+        externalTrafficPolicy: Local
+        annotations: 
+          service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: /healthz
+          service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+
+      config:
+        use-forwarded-headers: "true"
+
+      admissionWebhooks:
+        enabled: true
+
+        patch:
+          image:
+            registry: registry.k8s.io
+            image: ingress-nginx/kube-webhook-certgen
+            tag: v1.1.1
+            digest:
+
+      defaultBackend:
+        enabled: "true"
+        nodeSelector: kubernetes.io/os=linux
+        image:
+          registry: registry.k8s.io
+          image: defaultbackend-amd64
+          tag: 1.5
+          digest:
+

@@ -1,0 +1,38 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: core
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  dependsOn:
+    - name: infra-configs
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./core/test-azure-ext
+  prune: true
+  wait: true
+  timeout: 5m0s
+  
+  decryption:
+    provider: sops
+  
+  # https://fluxcd.io/flux/components/kustomize/kustomization/
+  postBuild:
+    substitute:
+      # aks loadbalancer ip (auto created by nginx) - cluster specific!
+      K_INGRESS_NGINX_LOADBALANCER_IP: ""
+      #
+      # managed identity with access to the sops decryption certificate in keyvault
+      K_SOPS_CLIENT_ID: ""
+      K_SOPS_RESOURCE_ID: ""
+      # 
+      # managed identity with Azure Monitor Reader and subscription Reader
+      K_GF_AZURE_MONITOR_CLIENT_ID: ""
+      K_GF_AZURE_MONITOR_RESOURCE_ID: ""
+    # substituteFrom:
+      # # must be stringdata
+      # - kind: Secret
+      #   name: cluster-secrets
+

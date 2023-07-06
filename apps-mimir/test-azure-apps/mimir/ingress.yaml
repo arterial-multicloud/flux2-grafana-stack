@@ -1,0 +1,24 @@
+# k get service -n mimir grafana -o yaml
+# in microservices mode each service exposes the http api independently
+# https://grafana.com/docs/mimir/latest/references/http-api/
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mimir-frontend
+  namespace: mimir
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ${K_MIMIR_DNS_NAME}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mimir-nginx
+                port:
+                  number: 80

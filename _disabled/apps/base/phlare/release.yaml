@@ -1,0 +1,18 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: phlare
+  namespace: phlare
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: phlare
+      version: ">=0.5.3 <1.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana-charts
+        namespace: grafana-charts
+      interval: 5m
+  values:
+    # https://github.com/grafana/phlare/blob/main/operations/phlare/helm/phlare/values.yaml

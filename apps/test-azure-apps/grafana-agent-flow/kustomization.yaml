@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: grafana-agent-flow
+resources:
+  - ../../base/grafana-agent-flow
+patches:
+  - path: grafana-agent-flow-values.yaml
+configMapGenerator:
+  # increment name to initate a rolling upgrade
+  # must match name in values.yaml 
+  - name: config.river.v16
+    files:
+      - config.river
+    options:
+      labels:
+        app.kubernetes.io/part-of: grafana-agent-flow
+        app.kubernetes.io/component: monitoring
+      # for disableNameSuffixHash 
+      #   see kustomize considerations: https://grafana.com/docs/agent/latest/flow/install/kubernetes/
+      disableNameSuffixHash: true

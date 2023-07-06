@@ -1,0 +1,88 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: tempo
+  namespace: tempo
+spec:
+
+  values:
+    # values from here: 
+    # https://github.com/grafana/helm-charts/blob/main/charts/tempo/values.yaml
+    #
+    # do not confuse with config.yaml values
+
+    replicas: 3
+
+    tempo:
+      extraArgs:
+        config.expand-env: true
+        # not supported
+        # target: scalable-single-binary
+
+      # scalable-single-binary requires the frontend_address to be set
+      # but port 9095 is not exposed by helm in the tempo service so it is not possible to achieve
+      # querier:
+        # frontend_worker:
+          # frontend_address:
+      
+      reportingEnabled: false
+
+      server: 
+        http_listen_port: 3100
+
+      storage:
+        trace:
+          # refer https://grafana.com/docs/tempo/latest/configuration/
+          backend: azure
+          azure:
+            # EXPERIMENTAL
+            # https://grafana.com/docs/loki/latest/configuration/#azure_storage_config
+            #
+            storage_account_name: $${AZURE_SA_ACCOUNT_NAME}
+            storage_account_key: $${AZURE_SA_ACCOUNT_KEY}
+            container_name: tempo
+            # endpoint_suffix: core.windows.net # defaults to Azure global(core.windows.net)
+
+      receivers:
+        jaeger:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:14250
+            thrift_binary:
+              endpoint: 0.0.0.0:6832
+            thrift_compact:
+              endpoint: 0.0.0.0:6831
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+        opencensus:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:4317"
+            http:
+              endpoint: "0.0.0.0:4318"
+
+      # https://grafana.com/docs/tempo/latest/metrics-generator/
+      metricsGenerator:
+        enabled: true
+        remoteWriteUrl: http://${K_MIMIR_DNS_NAME}/api/v1/push
+
+      extraEnv:
+        - name: AZURE_SA_ACCOUNT_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-access-key
+        - name: AZURE_SA_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              name: tempo-az-sa-access-key
+              key: sa-account-name
+
+    tempoQuery:
+      enabled: true
+      service:
+        port: 16686
+
+    serviceMonitor:
+      interval: 30s
